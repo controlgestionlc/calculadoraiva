@@ -1,0 +1,49 @@
+DIAGNÓSTICO: ¿DÓNDE ESTÁN MIS DATOS?
+====================================
+
+El mensaje "El archivo no contiene cálculos" significa que el JSON se leyó bien,
+pero venía vacío: se exportó desde un navegador/archivo que no tiene los cálculos.
+
+PASO 1 — Ver qué hay guardado
+-----------------------------
+Abre TU ARCHIVO ANTIGUO (el que usabas antes de todo esto), presiona F12,
+ve a la pestaña "Console", pega esto y presiona Enter:
+
+Object.keys(localStorage).map(k => k + '  →  ' + (localStorage.getItem(k)||'').length + ' caracteres')
+
+Resultados posibles:
+
+ · Aparece  "calculosIVA → 45231 caracteres"  (un número grande)
+      Ahí están tus datos. Pasa al PASO 2.
+
+ · Aparece  "calculosIVA → 2 caracteres"      (es una lista vacía "[]")
+      Ese navegador no tiene datos. Prueba en el otro navegador o en el otro
+      computador donde usabas la calculadora.
+
+ · No aparece "calculosIVA" por ningún lado
+      Los datos están en otro navegador, otro perfil o modo incógnito.
+      Si el nombre que aparece es parecido pero distinto, avísame cuál es.
+
+PASO 2 — Exportar
+-----------------
+En la misma consola, pega esto y presiona Enter:
+
+(()=>{const d={app:'calculadoraIVA',version:1,exportado:new Date().toISOString(),calculosIVA:JSON.parse(localStorage.getItem('calculosIVA')||'[]'),parametrosSII:JSON.parse(localStorage.getItem('parametrosSII')||'[]')};console.log('Cálculos encontrados:',d.calculosIVA.length);const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='respaldo_calculadora_iva.json';document.body.appendChild(a);a.click();})()
+
+Fíjate en lo que imprime la consola: "Cálculos encontrados: 12" (o el número que
+sea). Si dice 0, el archivo bajará vacío y no sirve — vuelve al PASO 1.
+
+PASO 3 — Importar
+-----------------
+En la app nueva: pestaña "Parámetros" → "Restaurar / migrar" → elige el JSON.
+
+--------------------------------------------------------------------
+IMPORTANTE
+--------------------------------------------------------------------
+· Cada navegador guarda sus propios datos: Chrome no ve lo de Edge, y un perfil
+  no ve lo del otro. Tienes que exportar desde donde realmente usabas la app.
+· En algunos navegadores, cada archivo .html abierto con doble clic tiene su
+  propio almacenamiento. Si moviste o renombraste el archivo antiguo, abre el
+  original desde su ubicación de siempre.
+· Si nunca presionaste "Guardar Cálculo", no hay nada que rescatar: los datos
+  se guardan solo al usar ese botón.

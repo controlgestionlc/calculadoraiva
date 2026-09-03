@@ -1571,11 +1571,33 @@
                 try { datos = JSON.parse(e.target.result); }
                 catch (err) { estadoRespaldo('❌ El archivo no es un JSON válido.', '#b85c5c'); input.value = ''; return; }
 
-                // Acepta el respaldo completo o una lista suelta de cálculos
-                const calculos = Array.isArray(datos) ? datos : (datos.calculosIVA || []);
-                const parametros = Array.isArray(datos) ? [] : (datos.parametrosSII || []);
+                // Acepta varias formas: respaldo completo, lista suelta, objeto por id,
+                // o un JSON exportado desde Firestore.
+                const comoLista = v => Array.isArray(v) ? v
+                                     : (v && typeof v === 'object' ? Object.values(v) : []);
+                let calculos = [], parametros = [];
+                if (Array.isArray(datos)) {
+                    calculos = datos;
+                } else if (datos && typeof datos === 'object') {
+                    calculos   = comoLista(datos.calculosIVA || datos.calculos || datos.registros || []);
+                    parametros = comoLista(datos.parametrosSII || datos.parametros || []);
+                    // Último recurso: un objeto plano cuyos valores parecen cálculos
+                    if (!calculos.length && !parametros.length) {
+                        const posibles = Object.values(datos).filter(v => v && typeof v === 'object' && (v.rut || v.empresa));
+                        if (posibles.length) calculos = posibles;
+                    }
+                }
+                calculos = calculos.filter(c => c && typeof c === 'object' && (c.rut || c.empresa));
+
                 if (!calculos.length && !parametros.length) {
-                    estadoRespaldo('❌ El archivo no contiene cálculos ni indicadores.', '#b85c5c');
+                    const claves = (datos && typeof datos === 'object' && !Array.isArray(datos))
+                        ? Object.keys(datos).join(', ') : (Array.isArray(datos) ? 'lista vacía' : typeof datos);
+                    const esRespaldoVacio = datos && datos.app === 'calculadoraIVA';
+                    estadoRespaldo(esRespaldoVacio
+                        ? '⚠️ El respaldo es válido pero está vacío: se exportó desde un navegador o archivo sin cálculos guardados. Exporta desde donde sí los tienes.'
+                        : '❌ No se reconocieron cálculos en el archivo. Contenido encontrado: ' + claves,
+                        '#b85c5c');
+                    console.log('Contenido del archivo importado:', datos);
                     input.value = ''; return;
                 }
                 if (!confirm('Se importarán ' + calculos.length + ' cálculo(s) y ' + parametros.length + ' período(s) de indicadores.\n\n' +
