@@ -1,0 +1,53 @@
+CÓMO RESCATAR LOS DATOS DE LA VERSIÓN ANTERIOR
+==============================================
+
+Los datos viven en el navegador, guardados por cada dirección (origen). Por eso
+no pasan solos del archivo local a la app publicada en GitHub Pages: hay que
+exportarlos a un archivo e importarlos.
+
+--------------------------------------------------------------------
+OPCIÓN A — La más rápida (probar primero)
+--------------------------------------------------------------------
+1. Abre en el mismo navegador de siempre el archivo nuevo:
+   Calculadora_IVA_LaCabana_v10_Firestore.html
+2. Ve a la pestaña "Consolidación". Si ahí aparecen tus cálculos antiguos,
+   los datos ya están disponibles.
+3. Ve a la pestaña "Parámetros" → botón "⬇️ Exportar todo (JSON)".
+4. Abre la app publicada y ve a "Parámetros" → "Restaurar / migrar"
+   → selecciona el archivo JSON descargado.
+
+--------------------------------------------------------------------
+OPCIÓN B — Si en la Opción A no aparecen los cálculos
+--------------------------------------------------------------------
+1. Abre TU ARCHIVO ANTIGUO (el que usabas antes) en el navegador.
+2. Presiona F12 → pestaña "Console".
+3. Pega esta línea completa y presiona Enter:
+
+(()=>{const d={app:'calculadoraIVA',version:1,exportado:new Date().toISOString(),calculosIVA:JSON.parse(localStorage.getItem('calculosIVA')||'[]'),parametrosSII:JSON.parse(localStorage.getItem('parametrosSII')||'[]')};const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='respaldo_calculadora_iva.json';document.body.appendChild(a);a.click();console.log('Exportados '+d.calculosIVA.length+' cálculos y '+d.parametrosSII.length+' indicadores');})()
+
+4. Se descargará "respaldo_calculadora_iva.json".
+5. Abre la app publicada → pestaña "Parámetros" → "Restaurar / migrar"
+   → selecciona ese archivo.
+
+Si en la consola dice "Exportados 0 cálculos", ese navegador o ese archivo no
+tiene datos guardados: prueba en el navegador donde sí usabas la calculadora.
+
+--------------------------------------------------------------------
+OPCIÓN C — Si los datos ya estaban en Firebase (proyecto informes-1382e)
+--------------------------------------------------------------------
+1. Abre la versión que se conectaba a ese proyecto e inicia sesión.
+2. Espera a que el indicador de abajo a la derecha diga "Sincronizado".
+3. Exporta con el botón (o con la línea de la Opción B) e importa en la app nueva.
+
+--------------------------------------------------------------------
+DESPUÉS DE IMPORTAR
+--------------------------------------------------------------------
+· La importación fusiona por empresa + período: lo que ya existe se reemplaza,
+  no se duplica. Puedes importar el mismo archivo dos veces sin problema.
+· Los cálculos de la versión antigua no tienen período guardado: aparecerán
+  agrupados como "Sin período". Ábrelos con "✏️ Editar", elige el mes que
+  corresponde y presiona "Actualizar Cálculo".
+· Tampoco tienen el detalle por tipo de documento: al abrirlos, el total queda
+  en la línea "Facturas (33)" y, al actualizarlos, quedan guardados con el
+  detalle completo.
+· Si iniciaste sesión, todo lo importado se sube automáticamente a Firebase.

@@ -376,6 +376,21 @@
                         <button class="btn btn-secondary" onclick="agregarParametroManual()" style="width: 100%;">➕ Agregar período manual</button>
                     </div>
                 </div>
+                <div class="form-row" style="align-items: flex-end; border-top: 1px solid var(--bo); margin-top: 18px; padding-top: 16px;">
+                    <div class="form-group">
+                        <label>Respaldo de datos:</label>
+                        <button class="btn btn-secondary" onclick="exportarRespaldo()" style="width: 100%;">⬇️ Exportar todo (JSON)</button>
+                    </div>
+                    <div class="form-group">
+                        <label>Restaurar / migrar:</label>
+                        <input type="file" id="archivoRespaldo" accept=".json,application/json" onchange="importarRespaldo(this)">
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <div class="aviso-editable" style="margin: 0;">Exporta cálculos e indicadores a un archivo. Sirve para traer los datos de la versión anterior o para respaldo.</div>
+                    </div>
+                </div>
+                <div id="estadoRespaldo" class="estado" style="margin-bottom: 12px;"></div>
                 <div id="estadoParametros" class="estado" style="margin-bottom: 12px;"></div>
                 <div id="tablaParametros" style="background: white; border-radius: 4px; padding: 15px;">
                     <p style="color: var(--mu); text-align: center;">Sin indicadores guardados. Presiona "Actualizar desde el SII".</p>
@@ -1521,6 +1536,96 @@
                 const btn = document.querySelector('.tab-btn[onclick*="' + tab + '"]');
                 if (btn) btn.classList.add('active');
             }
+        }
+
+        // ===== RESPALDO: EXPORTAR / IMPORTAR =====
+        function estadoRespaldo(txt, color) {
+            const el = document.getElementById('estadoRespaldo');
+            if (el) { el.textContent = txt; el.style.color = color || 'var(--mu)'; }
+        }
+
+        function exportarRespaldo() {
+            const datos = {
+                app: 'calculadoraIVA',
+                version: 1,
+                exportado: new Date().toISOString(),
+                calculosIVA: JSON.parse(localStorage.getItem('calculosIVA') || '[]'),
+                parametrosSII: JSON.parse(localStorage.getItem('parametrosSII') || '[]')
+            };
+            const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'respaldo_calculadora_iva_' + new Date().toISOString().slice(0, 10) + '.json';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+            estadoRespaldo('✅ Exportados ' + datos.calculosIVA.length + ' cálculos y ' + datos.parametrosSII.length + ' períodos de indicadores.', '#2d5a3d');
+        }
+
+        function importarRespaldo(input) {
+            const archivo = input.files && input.files[0];
+            if (!archivo) return;
+            const lector = new FileReader();
+            lector.onload = e => {
+                let datos;
+                try { datos = JSON.parse(e.target.result); }
+                catch (err) { estadoRespaldo('❌ El archivo no es un JSON válido.', '#b85c5c'); input.value = ''; return; }
+
+                // Acepta el respaldo completo o una lista suelta de cálculos
+                const calculos = Array.isArray(datos) ? datos : (datos.calculosIVA || []);
+                const parametros = Array.isArray(datos) ? [] : (datos.parametrosSII || []);
+                if (!calculos.length && !parametros.length) {
+                    estadoRespaldo('❌ El archivo no contiene cálculos ni indicadores.', '#b85c5c');
+                    input.value = ''; return;
+                }
+                if (!confirm('Se importarán ' + calculos.length + ' cálculo(s) y ' + parametros.length + ' período(s) de indicadores.\n\n' +
+                             'Los registros que ya existan con el mismo período y empresa se reemplazan; el resto se conserva.\n\n¿Continuar?')) {
+                    input.value = ''; return;
+                }
+
+                // ── Cálculos: se fusionan por empresa + período ──
+                const actuales = JSON.parse(localStorage.getItem('calculosIVA') || '[]');
+                let nuevos = 0, reemplazados = 0;
+                calculos.forEach(c => {
+                    if (!c || !c.rut) return;
+                    if (!c.id) c.id = Date.now() + Math.floor(Math.random() * 1000);
+                    if (!c._updatedAt) c._updatedAt = Date.now();
+                    if (c.periodo && !c.periodoNombre) c.periodoNombre = nombrePeriodo(c.periodo);
+                    const i = actuales.findIndex(x => x.rut === c.rut && (x.periodo || '') === (c.periodo || ''));
+                    if (i === -1) { actuales.push(c); nuevos++; }
+                    else { c.id = actuales[i].id; actuales[i] = c; reemplazados++; }
+                });
+                localStorage.setItem('calculosIVA', JSON.stringify(actuales));
+
+                // ── Indicadores ──
+                let paramNuevos = 0;
+                if (parametros.length) {
+                    const actualesP = leerParametros();
+                    parametros.forEach(p => {
+                        if (!p || !p.periodo) return;
+                        if (!p._updatedAt) p._updatedAt = Date.now();
+                        const i = actualesP.findIndex(x => x.periodo === p.periodo);
+                        if (i === -1) { actualesP.push(p); paramNuevos++; }
+                        else if ((p._updatedAt || 0) > (actualesP[i]._updatedAt || 0)) { actualesP[i] = p; paramNuevos++; }
+                    });
+                    escribirParametros(actualesP);
+                    if (window.fbGuardarParametros) window.fbGuardarParametros(actualesP);
+                }
+
+                // ── Subir a Firestore lo importado ──
+                if (window.fbGuardarCalculo) actuales.forEach(c => window.fbGuardarCalculo(c));
+
+                actualizarListaConsolidacion();
+                actualizarTablaParametros();
+                sincronizarPeriodoEmpresa();
+                estadoRespaldo('✅ Importación lista: ' + nuevos + ' cálculos nuevos, ' + reemplazados +
+                               ' reemplazados y ' + paramNuevos + ' períodos de indicadores.', '#2d5a3d');
+                alert('✅ Datos importados.\n\n' + nuevos + ' cálculos nuevos\n' + reemplazados +
+                      ' reemplazados\n' + paramNuevos + ' períodos de indicadores\n\n' +
+                      'Si iniciaste sesión, ya se están subiendo a la nube.');
+                input.value = '';
+            };
+            lector.readAsText(archivo, 'UTF-8');
         }
 
         // ===== PARÁMETROS MENSUALES (UTM / UTA) =====
