@@ -1,0 +1,33 @@
+rules_version = '2';
+
+// Reglas para el proyecto calculadoraiva-83a7f
+// Solo los correos de la lista pueden leer y escribir. Deben coincidir
+// con CORREOS_AUTORIZADOS dentro de index.html.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function autorizado() {
+      return request.auth != null
+          && request.auth.token.email_verified == true
+          && request.auth.token.email.lower() in [
+               'rodrigo.briones.friz@gmail.com',
+               'controlgestionlc@gmail.com'
+             ];
+    }
+
+    // Cálculos mensuales de IVA (F29)
+    match /calculosIVA/{docId} {
+      allow read, write: if autorizado();
+    }
+
+    // Indicadores mensuales UTM / UTA
+    match /parametrosSII/{docId} {
+      allow read, write: if autorizado();
+    }
+
+    // Todo lo demás queda cerrado
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
