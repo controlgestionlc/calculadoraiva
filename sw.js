@@ -8,7 +8,7 @@
      rompería la sincronización y el login.
    ══════════════════════════════════════════════════════════════ */
 
-const VERSION   = 'v1.1.0';
+const VERSION   = 'v1.3.0';
 const CACHE_APP = 'iva-app-' + VERSION;
 const CACHE_CDN = 'iva-cdn-' + VERSION;
 

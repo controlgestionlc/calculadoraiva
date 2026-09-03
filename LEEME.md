@@ -91,6 +91,7 @@ guardados en el dispositivo y se sincronizan con Firebase al recuperar señal.
 |-----------------|--------------------|------------------------------------------------------|
 | `calculosIVA`   | id del cálculo     | Cálculo mensual por empresa, con el detalle completo |
 | `parametrosSII` | período `YYYY-MM`  | UTM y UTA del mes, con su fuente y fecha             |
+| `empresas`      | RUT                | Razón social y % de PPM de cada empresa              |
 
 ---
 

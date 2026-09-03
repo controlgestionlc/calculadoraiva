@@ -25,6 +25,11 @@ service cloud.firestore {
       allow read, write: if autorizado();
     }
 
+    // Ficha de empresas (RUT, razón social, % PPM)
+    match /empresas/{docId} {
+      allow read, write: if autorizado();
+    }
+
     // Todo lo demás queda cerrado
     match /{document=**} {
       allow read, write: if false;

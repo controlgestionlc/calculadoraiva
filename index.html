@@ -404,6 +404,26 @@
         <!-- TAB: PARÁMETROS -->
         <div id="parametros" class="tab-content">
             <div class="section">
+                <div class="section-title">🏢 Empresas</div>
+                <div class="aviso-editable" style="margin-bottom: 12px;">
+                    RUT, razón social y % de PPM de cada empresa. Edita directamente en la tabla:
+                    los cambios se guardan solos. Estos RUT son los que se usan para reconocer
+                    automáticamente a qué empresa pertenece cada CSV del SII.
+                </div>
+                <div class="form-row" style="align-items: flex-end;">
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-secondary" onclick="agregarEmpresa()" style="width: 100%;">➕ Agregar empresa</button>
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <div id="estadoEmpresas" class="estado"></div>
+                    </div>
+                </div>
+                <div id="tablaEmpresas" style="background: white; border-radius: 4px;"></div>
+            </div>
+
+            <div class="section">
                 <div class="section-title">⚙️ Indicadores Mensuales (UTM / UTA)</div>
                 <div class="aviso-editable" style="margin-bottom: 12px;">
                     Valores oficiales publicados por el SII en
@@ -1586,6 +1606,269 @@
             }
         }
 
+        // ===== EMPRESAS (RUT, razón social, % PPM) =====
+        function normalizarRut(r) {
+            return String(r || '').replace(/[^0-9kK]/g, '').toUpperCase();
+        }
+
+        // Cuerpo del RUT sin dígito verificador: 76.213.206-0 → 76213206
+        function cuerpoRut(r) {
+            const n = normalizarRut(r);
+            return n.length > 1 ? n.slice(0, -1) : '';
+        }
+
+        function formatearRut(r) {
+            const n = normalizarRut(r);
+            return n.length > 1 ? n.slice(0, -1) + '-' + n.slice(-1) : String(r || '');
+        }
+
+        function leerEmpresas() {
+            let lista = null;
+            try { lista = JSON.parse(localStorage.getItem('empresasIVA') || 'null'); } catch (e) { lista = null; }
+            if (!Array.isArray(lista) || !lista.length) {
+                // Primera vez: se siembra con las empresas que traía la calculadora
+                lista = Object.keys(empresas).map(rut => ({
+                    rut: rut, nombre: empresas[rut], ppm: 0.01, _updatedAt: Date.now()
+                }));
+                localStorage.setItem('empresasIVA', JSON.stringify(lista));
+            }
+            return lista;
+        }
+
+        function escribirEmpresas(lista) {
+            lista.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+            localStorage.setItem('empresasIVA', JSON.stringify(lista));
+        }
+
+        function empresaPorRut(rut) {
+            const k = normalizarRut(rut);
+            return leerEmpresas().find(e => normalizarRut(e.rut) === k) || null;
+        }
+
+        function estadoEmpresas(txt, color) {
+            const el = document.getElementById('estadoEmpresas');
+            if (el) { el.textContent = txt; el.style.color = color || 'var(--mu)'; }
+        }
+
+        // Rehace el desplegable de empresas de la pestaña de cálculo
+        function actualizarSelectorEmpresas() {
+            const sel = document.getElementById('empresaSeleccionada');
+            if (!sel) return;
+            const previo = sel.value;
+            let html = '<option value="">-- Selecciona una empresa --</option>';
+            leerEmpresas().forEach(e => {
+                html += '<option value="' + e.rut + '">' + e.nombre + ' (' + e.rut + ')</option>';
+            });
+            sel.innerHTML = html;
+            if (previo && leerEmpresas().some(e => e.rut === previo)) sel.value = previo;
+        }
+
+        function guardarEmpresa(reg) {
+            const lista = leerEmpresas();
+            reg.rut = formatearRut(reg.rut);
+            reg._updatedAt = Date.now();
+            const i = lista.findIndex(e => normalizarRut(e.rut) === normalizarRut(reg.rut));
+            if (i === -1) lista.push(reg); else lista[i] = Object.assign({}, lista[i], reg);
+            escribirEmpresas(lista);
+            if (window.fbGuardarEmpresa) window.fbGuardarEmpresa(reg);
+            actualizarSelectorEmpresas();
+            actualizarTablaEmpresas();
+        }
+
+        function editarCampoEmpresa(rut, campo, valor) {
+            const e = empresaPorRut(rut);
+            if (!e) return;
+            if (campo === 'ppm') {
+                const n = parseDecimalCL(valor);
+                if (n < 0 || n > 100) { alert('❌ El % de PPM debe estar entre 0 y 100'); actualizarTablaEmpresas(); return; }
+                e.ppm = n;
+            } else if (campo === 'nombre') {
+                if (!String(valor).trim()) { alert('❌ La razón social no puede quedar vacía'); actualizarTablaEmpresas(); return; }
+                e.nombre = String(valor).trim().toUpperCase();
+            }
+            guardarEmpresa(e);
+            estadoEmpresas('✅ Guardado: ' + e.nombre, '#2d5a3d');
+            // Si es la empresa en pantalla, refrescar sus valores
+            if (normalizarRut(document.getElementById('empresaSeleccionada').value) === normalizarRut(rut)) {
+                actualizarEmpresa();
+            }
+        }
+
+        function agregarEmpresa() {
+            const rut = prompt('RUT de la empresa (con guion, ej: 76213206-0):', '');
+            if (!rut) return;
+            if (normalizarRut(rut).length < 8) { alert('❌ RUT inválido'); return; }
+            if (empresaPorRut(rut)) { alert('❌ Esa empresa ya está en la lista'); return; }
+            const nombre = prompt('Razón social:', '');
+            if (!nombre || !nombre.trim()) { alert('❌ Debes indicar la razón social'); return; }
+            const ppm = prompt('% de PPM (ej: 0.01):', '0.01');
+            guardarEmpresa({ rut: formatearRut(rut), nombre: nombre.trim().toUpperCase(), ppm: parseDecimalCL(ppm) });
+            estadoEmpresas('✅ Empresa agregada', '#2d5a3d');
+        }
+
+        function eliminarEmpresa(rut) {
+            const e = empresaPorRut(rut);
+            if (!e) return;
+            const usados = JSON.parse(localStorage.getItem('calculosIVA') || '[]')
+                .filter(c => normalizarRut(c.rut) === normalizarRut(rut)).length;
+            const aviso = usados
+                ? '\n\nOJO: hay ' + usados + ' cálculo(s) guardado(s) de esta empresa. No se borran, pero quedarán sin ficha.'
+                : '';
+            if (!confirm('¿Eliminar a ' + e.nombre + ' de la lista de empresas?' + aviso)) return;
+            escribirEmpresas(leerEmpresas().filter(x => normalizarRut(x.rut) !== normalizarRut(rut)));
+            if (window.fbEliminarEmpresa) window.fbEliminarEmpresa(formatearRut(rut));
+            actualizarSelectorEmpresas();
+            actualizarTablaEmpresas();
+            estadoEmpresas('🗑️ Empresa eliminada', 'var(--mu)');
+        }
+
+        function actualizarTablaEmpresas() {
+            const cont = document.getElementById('tablaEmpresas');
+            if (!cont) return;
+            const lista = leerEmpresas();
+            let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
+            html += '<tr style="background: var(--gs); font-weight: 600;">';
+            html += '<th style="border: 1px solid var(--bo); padding: 10px; text-align: left;">RUT</th>';
+            html += '<th style="border: 1px solid var(--bo); padding: 10px; text-align: left;">Razón social</th>';
+            html += '<th style="border: 1px solid var(--bo); padding: 10px; text-align: right;">% PPM</th>';
+            html += '<th style="border: 1px solid var(--bo); padding: 10px; text-align: center;">Acciones</th></tr>';
+            lista.forEach(e => {
+                html += '<tr>';
+                html += '<td style="border: 1px solid var(--bo); padding: 8px; white-space: nowrap; font-weight: 600;">' + e.rut + '</td>';
+                html += '<td style="border: 1px solid var(--bo); padding: 6px;">'
+                     +  '<input type="text" class="celda-editable" value="' + (e.nombre || '').replace(/"/g, '&quot;') + '"'
+                     +  ' onchange="editarCampoEmpresa(\'' + e.rut + '\', \'nombre\', this.value)"'
+                     +  ' style="width: 100%; text-align: left; padding: 7px; border-radius: 4px; font-size: 12px;"></td>';
+                html += '<td style="border: 1px solid var(--bo); padding: 6px; width: 110px;">'
+                     +  '<input type="text" class="celda-editable" value="' + (e.ppm !== undefined ? e.ppm : 0.01) + '"'
+                     +  ' onchange="editarCampoEmpresa(\'' + e.rut + '\', \'ppm\', this.value)"'
+                     +  ' style="width: 100%; padding: 7px; border-radius: 4px; font-size: 12px;"></td>';
+                html += '<td style="border: 1px solid var(--bo); padding: 8px; text-align: center;">'
+                     +  '<button class="btn btn-secondary" onclick="eliminarEmpresa(\'' + e.rut + '\')"'
+                     +  ' style="font-size: 11px; padding: 5px 10px; background: #f5d5d5; color: #b85c5c;">Eliminar</button></td>';
+                html += '</tr>';
+            });
+            html += '</table>';
+            cont.innerHTML = '<div class="tabla-scroll">' + html + '</div>';
+        }
+
+        // ===== DETECCIÓN AUTOMÁTICA DE LA EMPRESA DEL CSV =====
+        // 1) Columna con el RUT propio (receptor en compras, emisor en ventas).
+        // 2) RUT dentro del nombre del archivo.
+        // No se usa el RUT del proveedor/cliente: entre empresas del grupo se
+        // facturan entre ellas y daría la empresa equivocada.
+        // Saca los RUT que vengan en el nombre del archivo. El SII nombra las
+        // descargas incluyendo el RUT del contribuyente, en formatos como:
+        //   RCV_COMPRA_REGISTRO_76213206-0_202607.csv
+        //   76.213.206-0_ventas_072026.csv
+        //   RCV_VENTA_762132060_2026_07.csv
+        function rutsEnNombre(nombreArchivo) {
+            const base = String(nombreArchivo || '').replace(/\.[a-z0-9]+$/i, '');
+            const encontrados = [];
+            // Grupos de 7 a 9 dígitos (con puntos opcionales) y un DV opcional detrás
+            const re = /(\d{1,2}[.]?\d{3}[.]?\d{3})\s*[-_ ]?\s*([\dkK])?/g;
+            let m;
+            while ((m = re.exec(base)) !== null) {
+                const cuerpo = m[1].replace(/\D/g, '');
+                if (cuerpo.length >= 7 && cuerpo.length <= 8) encontrados.push({ cuerpo: cuerpo, dv: (m[2] || '').toUpperCase() });
+            }
+            return encontrados;
+        }
+
+        function detectarEmpresaDesdeCSV(texto, nombreArchivo, tipo) {
+            const lista = leerEmpresas();
+            if (!lista.length) return null;
+
+            // 1) Nombre del archivo: es el RUT de quien descargó el registro,
+            //    la pista más confiable.
+            const enNombre = rutsEnNombre(nombreArchivo);
+            for (const r of enNombre) {
+                const e = lista.find(x => cuerpoRut(x.rut) === r.cuerpo);
+                if (e) return { empresa: e, via: 'el nombre del archivo' };
+            }
+
+            try {
+                const lineas = texto.split('\n');
+                const sep = lineas[0].includes(';') ? ';' : ',';
+                const header = lineas[0].split(sep).map(h => h.trim().toUpperCase());
+                const patron = tipo === 'compras'
+                    ? /(RECEPTOR|ADQUIRENTE|ADQUIRIENTE|COMPRADOR)/
+                    : /(EMISOR|VENDEDOR|INFORMANTE)/;
+                const idx = header.findIndex(h => h.includes('RUT') && patron.test(h));
+                if (idx >= 0) {
+                    const cuenta = {};
+                    for (let i = 1; i < lineas.length && i < 800; i++) {
+                        if (!lineas[i].trim()) continue;
+                        const k = cuerpoRut((lineas[i].split(sep)[idx] || ''));
+                        if (k) cuenta[k] = (cuenta[k] || 0) + 1;
+                    }
+                    const top = Object.keys(cuenta).sort((a, b) => cuenta[b] - cuenta[a])[0];
+                    const e = lista.find(x => cuerpoRut(x.rut) === top);
+                    if (e) return { empresa: e, via: 'la columna "' + header[idx] + '"' };
+                }
+            } catch (err) { console.warn('Detección por columna:', err); }
+
+            // 3) Último intento: cualquier RUT registrado dentro de los dígitos del nombre
+            const digitos = String(nombreArchivo || '').replace(/[^0-9]/g, '');
+            const candidatas = lista.filter(e => cuerpoRut(e.rut) && digitos.includes(cuerpoRut(e.rut)));
+            if (candidatas.length === 1) return { empresa: candidatas[0], via: 'el nombre del archivo' };
+
+            // Hay un RUT en el nombre pero no está en la tabla de Empresas
+            if (enNombre.length) {
+                return { desconocido: formatearRut(enNombre[0].cuerpo + (enNombre[0].dv || '')),
+                         cuerpo: enNombre[0].cuerpo, archivo: nombreArchivo };
+            }
+            return { sinPistas: true, archivo: nombreArchivo };
+        }
+
+        // Aplica la detección y devuelve el texto para la línea de estado
+        function aplicarEmpresaDetectada(det) {
+            const sel = document.getElementById('empresaSeleccionada');
+
+            if (!det || det.sinPistas) {
+                const arch = det && det.archivo ? ' (archivo: ' + det.archivo + ')' : '';
+                return sel.value ? '' : ' · ⚠️ Empresa no detectada' + arch + ': selecciónala a mano.';
+            }
+
+            // El archivo trae un RUT que no está registrado: se ofrece agregarlo
+            if (det.desconocido) {
+                const agregar = confirm('El archivo corresponde al RUT ' + det.desconocido +
+                    ', que no está en la tabla de Empresas.\n\n¿Agregarlo ahora?');
+                if (agregar) {
+                    const nombre = prompt('Razón social de ' + det.desconocido + ':', '');
+                    if (nombre && nombre.trim()) {
+                        const ppm = prompt('% de PPM (ej: 0.01):', '0.01');
+                        guardarEmpresa({ rut: det.desconocido, nombre: nombre.trim().toUpperCase(), ppm: parseDecimalCL(ppm) });
+                        sel.value = formatearRut(det.desconocido);
+                        actualizarEmpresa();
+                        return ' · 🏢 ' + nombre.trim().toUpperCase() + ' (nueva)';
+                    }
+                }
+                return ' · ⚠️ RUT ' + det.desconocido + ' no registrado en Empresas.';
+            }
+
+            const actual = normalizarRut(sel.value);
+            const nueva = normalizarRut(det.empresa.rut);
+
+            if (!actual) {
+                sel.value = det.empresa.rut;
+                actualizarEmpresa();
+                return ' · 🏢 ' + det.empresa.nombre;
+            }
+            if (actual === nueva) return ' · 🏢 ' + det.empresa.nombre;
+
+            const cambiar = confirm('⚠️ El archivo parece ser de otra empresa.\n\n' +
+                'Seleccionada: ' + (empresaPorRut(sel.value) ? empresaPorRut(sel.value).nombre : sel.value) + '\n' +
+                'En el archivo: ' + det.empresa.nombre + ' (según ' + det.via + ')\n\n' +
+                '¿Cambiar a ' + det.empresa.nombre + '?');
+            if (cambiar) {
+                sel.value = det.empresa.rut;
+                actualizarEmpresa();
+                return ' · 🏢 ' + det.empresa.nombre;
+            }
+            return ' · ⚠️ El archivo sería de ' + det.empresa.nombre;
+        }
+
         // ===== RESPALDO: EXPORTAR / IMPORTAR =====
         function estadoRespaldo(txt, color) {
             const el = document.getElementById('estadoRespaldo');
@@ -1598,7 +1881,8 @@
                 version: 1,
                 exportado: new Date().toISOString(),
                 calculosIVA: JSON.parse(localStorage.getItem('calculosIVA') || '[]'),
-                parametrosSII: JSON.parse(localStorage.getItem('parametrosSII') || '[]')
+                parametrosSII: JSON.parse(localStorage.getItem('parametrosSII') || '[]'),
+                empresas: leerEmpresas()
             };
             const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' });
             const a = document.createElement('a');
@@ -1629,6 +1913,18 @@
                 } else if (datos && typeof datos === 'object') {
                     calculos   = comoLista(datos.calculosIVA || datos.calculos || datos.registros || []);
                     parametros = comoLista(datos.parametrosSII || datos.parametros || []);
+                    const empresasImp = comoLista(datos.empresas || []).filter(e => e && e.rut);
+                    if (empresasImp.length) {
+                        const actualesE = leerEmpresas();
+                        empresasImp.forEach(e => {
+                            const i = actualesE.findIndex(x => normalizarRut(x.rut) === normalizarRut(e.rut));
+                            if (i === -1) actualesE.push(e); else actualesE[i] = Object.assign({}, actualesE[i], e);
+                        });
+                        escribirEmpresas(actualesE);
+                        if (window.fbGuardarEmpresas) window.fbGuardarEmpresas(actualesE);
+                        actualizarSelectorEmpresas();
+                        actualizarTablaEmpresas();
+                    }
                     // Último recurso: un objeto plano cuyos valores parecen cálculos
                     if (!calculos.length && !parametros.length) {
                         const posibles = Object.values(datos).filter(v => v && typeof v === 'object' && (v.rut || v.empresa));
@@ -2027,8 +2323,12 @@
 
         function actualizarEmpresa() {
             const rut = document.getElementById('empresaSeleccionada').value;
-            const nombreEmpresa = empresas[rut] || '';
-            document.getElementById('empresaNombre').value = nombreEmpresa;
+            const ficha = empresaPorRut(rut);
+            document.getElementById('empresaNombre').value = ficha ? ficha.nombre : (empresas[rut] || '');
+            // % PPM propio de la empresa (en edición manda lo que quedó guardado)
+            if (ficha && ficha.ppm !== undefined && !modoEdicion) {
+                document.getElementById('ppmPorcentaje').value = ficha.ppm;
+            }
             sincronizarPeriodoEmpresa();
         }
 
@@ -2108,9 +2408,12 @@
                         fijarPeriodoFormulario(mesMasFrequente);
                     }
 
+                    const avisoEmpresaC = aplicarEmpresaDetectada(
+                        detectarEmpresaDesdeCSV(e.target.result, archivo.name, 'compras'));
                     llenarCreditosDesdeCSV();
                     document.getElementById('estadoCompras').textContent = '✅ Cargadas ' + datosCompras.length
                         + (periodoDetectado ? ' (Período: ' + convertirMesANombre(periodoDetectado) + ')' : '')
+                        + avisoEmpresaC
                         + avisoTiposNoConsiderados(datosCompras, TIPOS_COMPRAS);
                 } catch (err) {
                     document.getElementById('estadoCompras').textContent = '❌ Error: ' + err.message;
@@ -2159,9 +2462,12 @@
                         fijarPeriodoFormulario(mesMasFrequente);
                     }
 
+                    const avisoEmpresaV = aplicarEmpresaDetectada(
+                        detectarEmpresaDesdeCSV(e.target.result, archivo.name, 'ventas'));
                     llenarDebitosDesdeCSV();
                     document.getElementById('estadoVentas').textContent = '✅ Cargadas ' + datosVentas.length
                         + (periodoDetectado ? ' (Período: ' + convertirMesANombre(periodoDetectado) + ')' : '')
+                        + avisoEmpresaV
                         + avisoTiposNoConsiderados(datosVentas, TIPOS_VENTAS);
                 } catch (err) {
                     document.getElementById('estadoVentas').textContent = '❌ Error: ' + err.message;
@@ -3009,6 +3315,8 @@
                     selAnio.appendChild(o);
                 }
             }
+            actualizarSelectorEmpresas();
+            actualizarTablaEmpresas();
             actualizarTablaParametros();
             sincronizarPeriodoEmpresa();
             actualizarListaConsolidacion();
@@ -3091,6 +3399,7 @@
   const autorizado = u => !!u && CORREOS_AUTORIZADOS.includes((u.email || "").toLowerCase());
   const COLECCION = "calculosIVA";     // cálculos mensuales de IVA
   const COL_PARAMS = "parametrosSII";  // indicadores mensuales (UTM / UTA)
+  const COL_EMPRESAS = "empresas";     // ficha de cada empresa (RUT, razón social, % PPM)
 
   const overlay  = document.getElementById('loginOverlay');
   const badge    = document.getElementById('syncBadge');
@@ -3126,6 +3435,27 @@
       await deleteDoc(doc(db, COLECCION, String(id)));
       setBadge('☁️ Sincronizado', '#4a8c62');
     } catch (e) { console.error('Firestore eliminar:', e); setBadge('⚠️ Error al sincronizar', '#b85c5c'); }
+  };
+
+  // ── Empresas ──
+  window.fbGuardarEmpresa = async (e) => {
+    if (!conectado() || !e || !e.rut) return;
+    try { await setDoc(doc(db, COL_EMPRESAS, e.rut), e); setBadge('☁️ Sincronizado', '#4a8c62'); }
+    catch (err) { console.error('Firestore empresa:', err); setBadge('⚠️ Error al sincronizar', '#b85c5c'); }
+  };
+
+  window.fbGuardarEmpresas = async (lista) => {
+    if (!conectado() || !lista || !lista.length) return;
+    try {
+      const batch = writeBatch(db);
+      lista.forEach(e => batch.set(doc(db, COL_EMPRESAS, e.rut), e));
+      await batch.commit();
+    } catch (err) { console.error('Firestore empresas:', err); }
+  };
+
+  window.fbEliminarEmpresa = async (rut) => {
+    if (!conectado()) return;
+    try { await deleteDoc(doc(db, COL_EMPRESAS, rut)); } catch (err) { console.error('Firestore empresa:', err); }
   };
 
   // ── Parámetros mensuales (UTM / UTA) ──
@@ -3222,6 +3552,27 @@
         if (typeof actualizarTablaParametros === 'function') actualizarTablaParametros();
         console.log('Firestore: ' + listaP.length + ' períodos de indicadores.');
       } catch (e) { console.error('No se pudieron sincronizar los parámetros:', e); }
+
+      // Empresas: fusión por RUT según marca de tiempo
+      try {
+        const snapE = await getDocs(collection(db, COL_EMPRESAS));
+        const remotasE = new Map();
+        snapE.forEach(d => { const o = d.data(); if (o.rut) remotasE.set(o.rut, o); });
+        const localesE = JSON.parse(localStorage.getItem('empresasIVA') || '[]');
+        const fusionE = new Map(remotasE);
+        const subirE = [];
+        localesE.forEach(l => {
+          const r = remotasE.get(l.rut);
+          if (!r || (l._updatedAt || 0) > (r._updatedAt || 0)) { fusionE.set(l.rut, l); subirE.push(l); }
+        });
+        const listaE = [...fusionE.values()];
+        if (listaE.length) {
+          localStorage.setItem('empresasIVA', JSON.stringify(listaE));
+          for (const e of subirE) await setDoc(doc(db, COL_EMPRESAS, e.rut), e);
+          if (typeof actualizarSelectorEmpresas === 'function') actualizarSelectorEmpresas();
+          if (typeof actualizarTablaEmpresas === 'function') actualizarTablaEmpresas();
+        }
+      } catch (e) { console.error('No se pudieron sincronizar las empresas:', e); }
 
       if (typeof actualizarListaConsolidacion === 'function') actualizarListaConsolidacion();
       setBadge('☁️ Sincronizado (' + lista.length + ' cálculos)', '#4a8c62');
