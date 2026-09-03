@@ -57,6 +57,22 @@
         .celda-editable:focus { background: #fff !important; border-color: var(--gd) !important; outline: none; }
         .aviso-editable { font-size: 11px; color: var(--mu); margin-top: 6px; }
     
+
+        /* ═══════════ ANTIDESBORDE ═══════════
+           Un <select> sin ancho se estira hasta su opción más larga
+           ("SOCIEDAD CONSTRUCTORA VALLE VERDE LIMITADA (76464060-8)") y
+           empuja el ancho de TODO el documento: por eso en el teléfono las
+           tarjetas se veían angostas y la página se deslizaba de lado. */
+        .container { width: 100%; }
+        .section, .header, .tabs { max-width: 100%; }
+        select, textarea {
+            width: 100%; padding: 10px; border: 1px solid var(--bo);
+            border-radius: 4px; font-size: 13px; background: var(--wh); color: var(--tx);
+        }
+        input, select, textarea, button { max-width: 100%; min-width: 0; }
+        input[type="file"] { width: 100%; }
+        .form-group select, .form-group textarea { width: 100%; }
+        .form-group { min-width: 0; }
         /* ═══════════ TABLAS CON SCROLL PROPIO ═══════════
            Sin esto, una tabla ancha estira toda la página en el móvil y las
            tarjetas quedan angostas con scroll horizontal en todo el documento. */
@@ -96,6 +112,11 @@
             /* 16px evita que iOS haga zoom al tocar un campo */
             input, select, textarea { font-size: 16px !important; }
 
+
+            /* Red de seguridad: nada puede empujar el ancho de la página */
+            html, body { max-width: 100%; overflow-x: hidden; }
+            input[type="file"] { font-size: 13px !important; }
+            .form-row > *, .form-row-3 > * { min-width: 0; }
             #frameComparador { height: 78vh !important; }
             #syncBadge { left: 10px; right: 10px; bottom: 8px; text-align: center; }
         }
