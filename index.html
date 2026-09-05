@@ -397,6 +397,7 @@
                 </div>
                 <div style="margin-bottom: 20px;">
                     <button class="btn btn-primary" onclick="generarReporteConsolidado()" style="margin-right: 10px;">📄 Generar Reporte Final del Mes</button>
+                    <button class="btn btn-primary" onclick="generarF29PorEmpresa()" style="margin-right: 10px; background: #2d5a3d;">🧾 Generar F29 por Empresa</button>
                     <button class="btn btn-secondary" onclick="limpiarPeriodo()" style="margin-right: 10px;">🗑️ Borrar Período Mostrado</button>
                     <button class="btn btn-secondary" onclick="limpiarTodos()" style="background: #f5d5d5; color: #b85c5c;">🗑️ Limpiar Todo</button>
                 </div>
@@ -3313,6 +3314,174 @@
             reporte += '</body></html>';
 
             const ventana = window.open('', '', 'width=1000,height=700');
+            ventana.document.write(reporte);
+            ventana.document.close();
+        }
+
+        // ===== FORMULARIO 29 POR EMPRESA (estilo formulario compacto SII) =====
+        // Códigos verificados según instructivo vigente del SII para el F29:
+        //   Línea 20 · Cód. 538 → Total Débito Fiscal
+        //   Línea 42 · Cód. 537 → Total Crédito Fiscal (incluye remanente mes anterior)
+        //   Línea 43 · Cód. 89  → IVA Determinado a pagar (si Débito > Crédito)
+        //             Cód. 77  → Remanente de Crédito Fiscal, sin signo (si Crédito > Débito)
+        //   Línea 57 · Cód. 62  → PPM obligatorio 1ª Categoría
+        //   Línea 46 · Cód. 151 → Retención Boletas de Honorarios (Art. 42 N°2 LIR)
+        //   Línea 60 · Cód. 48  → Impuesto Único de Segunda Categoría (trabajadores dependientes)
+        //   Cód. 46            → Retención de IVA en Facturas de Compra
+        //   Cód. 91            → Total a Pagar
+        // El SII puede modificar estos códigos por resolución: antes de declarar,
+        // siempre contrasta contra la propuesta oficial en sii.cl.
+
+        // Genera un "casillero" tipo SII: recuadro con el número de código en la
+        // esquina superior y el monto (o el concepto) debajo.
+        function casilleroF29(codigo, etiqueta, valor, opts) {
+            opts = opts || {};
+            const ancho = opts.ancho || '';
+            const claseExtra = opts.clase ? ' ' + opts.clase : '';
+            const contenido = (valor === null) ? '' : '$' + fmt(valor);
+            return '<div class="cas' + claseExtra + '"' + (ancho ? ' style="' + ancho + '"' : '') + '>' +
+                   '<div class="cas-cod">' + codigo + '</div>' +
+                   '<div class="cas-etq">' + etiqueta + '</div>' +
+                   '<div class="cas-val">' + contenido + '</div>' +
+                   '</div>';
+        }
+
+        function generarF29PorEmpresa() {
+            const filtroRep = document.getElementById('filtroPeriodo');
+            const periodoHistorial = filtroRep ? filtroRep.value : '';
+            const todosLosCalculos = JSON.parse(localStorage.getItem('calculosIVA') || '[]');
+            const calculos = periodoHistorial
+                ? todosLosCalculos.filter(c => (c.periodo || '') === periodoHistorial)
+                : todosLosCalculos;
+
+            if (todosLosCalculos.length === 0) {
+                alert('❌ No hay cálculos guardados para generar el F29');
+                return;
+            }
+            if (calculos.length === 0) {
+                alert('❌ No hay cálculos guardados para ' + nombrePeriodo(periodoHistorial));
+                return;
+            }
+            if (!periodoHistorial && periodosDisponibles(todosLosCalculos).length > 1) {
+                if (!confirm('⚠️ Vas a generar un F29 por cada cálculo de TODOS los períodos juntos (' + calculos.length + ' cálculos).\n\n' +
+                             'Para generar solo el mes en curso, selecciona un período en el historial.\n\n¿Continuar de todos modos?')) return;
+            }
+
+            let reporte = '<html><head><meta charset="UTF-8"><title>Formulario 29 por Empresa</title>';
+            reporte += '<style>';
+            reporte += 'body { font-family: Arial, Helvetica, sans-serif; margin: 24px; color: #222; background:#e9edf0; }';
+            reporte += '.f29 { background:#fff; border: 1px solid #8a8a8a; padding: 0; margin: 0 auto 28px; max-width: 780px; page-break-after: always; }';
+            reporte += '.f29:last-child { page-break-after: auto; }';
+
+            // Encabezado tipo formulario oficial
+            reporte += '.f29-top { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #000; padding:10px 14px; }';
+            reporte += '.f29-top .titulo { font-size:13px; font-weight:700; line-height:1.3; }';
+            reporte += '.f29-top .titulo small { display:block; font-weight:400; font-size:10.5px; color:#444; }';
+            reporte += '.f29-top .formno { border:1.5px solid #000; padding:4px 10px; text-align:center; font-weight:700; font-size:15px; }';
+            reporte += '.f29-top .formno small { display:block; font-weight:400; font-size:8.5px; }';
+
+            // Franja identificación (período / rut / razón social)
+            reporte += '.f29-id { display:flex; border-bottom:2px solid #000; }';
+            reporte += '.f29-id .cas { flex:1; border-right:1px solid #000; }';
+            reporte += '.f29-id .cas:last-child { border-right:none; flex:2; }';
+
+            // Estilo de "casillero" (recuadro con código en esquina)
+            reporte += '.cas { position:relative; border:1px solid #000; padding:10px 8px 8px; min-height:52px; box-sizing:border-box; }';
+            reporte += '.cas-cod { position:absolute; top:0; left:0; background:#000; color:#fff; font-size:9.5px; font-weight:700; padding:1px 5px; border-bottom-right-radius:3px; }';
+            reporte += '.cas-etq { font-size:8.5px; color:#444; text-transform:uppercase; letter-spacing:.2px; margin-top:9px; min-height:20px; }';
+            reporte += '.cas-val { font-size:14px; font-weight:700; text-align:right; margin-top:4px; font-variant-numeric: tabular-nums; }';
+            reporte += '.cas.vacio .cas-val { color:#bbb; }';
+            reporte += '.cas.destacado { background:#f0f7f3; }';
+            reporte += '.cas.pagar { background:#fdeeee; }';
+            reporte += '.cas.pagar .cas-val { color:#a33; }';
+            reporte += '.cas.remanente { background:#eef8f0; }';
+            reporte += '.cas.remanente .cas-val { color:#2d7a3d; }';
+            reporte += '.cas.total { background:#000; }';
+            reporte += '.cas.total .cas-cod { background:#fff; color:#000; }';
+            reporte += '.cas.total .cas-etq { color:#ddd; }';
+            reporte += '.cas.total .cas-val { color:#fff; font-size:19px; }';
+
+            // Bloques / secciones (como en el papel: IVA, PPM, Retenciones...)
+            reporte += '.bloque-titulo { background:#dfe6e2; border-top:1px solid #000; border-bottom:1px solid #000; padding:4px 14px; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:#2d5a3d; }';
+            reporte += '.fila-cas { display:flex; }';
+            reporte += '.fila-cas .cas { flex:1; }';
+
+            reporte += '.f29-footer { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; font-size:10px; color:#555; border-top:1px solid #000; }';
+            reporte += '.nota { font-size:9.5px; color:#777; padding:8px 14px 14px; }';
+            reporte += '.portada { text-align: center; margin-bottom: 16px; }';
+            reporte += '@media print { body { margin: 0; background:#fff; } .f29 { border:none; max-width:100%; } }';
+            reporte += '</style></head><body>';
+
+            reporte += '<div class="portada"><h1 style="color:#2d5a3d;margin-bottom:4px;">🧾 Formulario 29 por Empresa</h1>';
+            reporte += '<p style="color:#7a9585;margin:0;">Período: ' + nombrePeriodo(periodoHistorial || calculos[0].periodo || '') +
+                        ' — Generado: ' + new Date().toLocaleString('es-CL') + ' — ' + calculos.length + ' empresa' + (calculos.length > 1 ? 's' : '') + '</p></div>';
+
+            calculos.forEach(c => {
+                const retencionHonorarios = (c.retencionBH || 0) + (c.retencionBHT || 0);
+                const esPago = c.ivaDeterminado > 0;
+                const [anio, mes] = (c.periodo || '').split('-');
+                const periodoCasillero = mes && anio ? (mes + ' - ' + anio) : nombrePeriodo(c.periodo);
+
+                reporte += '<div class="f29">';
+
+                // Encabezado
+                reporte += '<div class="f29-top">';
+                reporte += '<div class="titulo">Declaración Mensual y Pago Simultáneo de Impuestos' +
+                            '<small>Impuesto al Valor Agregado (IVA) — Servicio de Impuestos Internos</small></div>';
+                reporte += '<div class="formno">F 29<small>FORMULARIO</small></div>';
+                reporte += '</div>';
+
+                // Identificación
+                reporte += '<div class="f29-id">';
+                reporte += '<div class="cas" style="flex:0 0 130px;"><div class="cas-cod">15</div><div class="cas-etq">Período tributario</div><div class="cas-val" style="font-size:14px;">' + periodoCasillero + '</div></div>';
+                reporte += '<div class="cas" style="flex:0 0 160px;"><div class="cas-cod">03</div><div class="cas-etq">RUT contribuyente</div><div class="cas-val" style="font-size:14px;">' + (c.rut || '—') + '</div></div>';
+                reporte += '<div class="cas"><div class="cas-cod">01</div><div class="cas-etq">Razón social</div><div class="cas-val" style="font-size:14px; text-align:left;">' + c.empresa + '</div></div>';
+                reporte += '</div>';
+
+                // Bloque IVA - Débitos y Créditos
+                reporte += '<div class="bloque-titulo">IVA — Débitos y Créditos</div>';
+                reporte += '<div class="fila-cas">';
+                reporte += casilleroF29('538', 'Línea 20 · Total Débito Fiscal', c.debito, { clase: 'destacado' });
+                reporte += casilleroF29('537', 'Línea 42 · Total Crédito Fiscal (incl. remanente mes anterior)', c.credito, { clase: 'destacado' });
+                reporte += '</div>';
+
+                // Bloque determinación del IVA (43)
+                reporte += '<div class="bloque-titulo">Línea 43 · Determinación del IVA</div>';
+                reporte += '<div class="fila-cas">';
+                if (esPago) {
+                    reporte += casilleroF29('89', 'IVA Determinado (a pagar)', c.ivaDeterminado, { clase: 'pagar' });
+                    reporte += casilleroF29('77', 'Remanente crédito fiscal', null, { clase: 'vacio' });
+                } else {
+                    reporte += casilleroF29('89', 'IVA Determinado (a pagar)', null, { clase: 'vacio' });
+                    reporte += casilleroF29('77', 'Remanente crédito fiscal (' + (c.remanenteMesUTM || 0).toFixed(2) + ' UTM)', c.remanenteMes || 0, { clase: 'remanente' });
+                }
+                reporte += '</div>';
+
+                // Bloque PPM y Retenciones (solo casilleros con datos, más los que aplican siempre)
+                const casillerosRet = [];
+                casillerosRet.push(casilleroF29('62', 'Línea 57 · PPM Obligatorio 1ª Categoría (' + (c.ppmPorcentaje || 0) + '%)', c.ppm || 0, (c.ppm || 0) > 0 ? {} : { clase: 'vacio' }));
+                casillerosRet.push(casilleroF29('151', 'Línea 46 · Retención Boletas de Honorarios', retencionHonorarios, retencionHonorarios > 0 ? {} : { clase: 'vacio' }));
+                casillerosRet.push(casilleroF29('48', 'Línea 60 · Impuesto Único 2ª Categoría', c.imputoUnicoTrab || 0, (c.imputoUnicoTrab || 0) > 0 ? {} : { clase: 'vacio' }));
+                casillerosRet.push(casilleroF29('46', 'Retención IVA Facturas de Compra', c.ivaFPC46 || 0, (c.ivaFPC46 || 0) > 0 ? {} : { clase: 'vacio' }));
+
+                reporte += '<div class="bloque-titulo">PPM y Retenciones</div>';
+                reporte += '<div class="fila-cas">' + casillerosRet.slice(0, 2).join('') + '</div>';
+                reporte += '<div class="fila-cas">' + casillerosRet.slice(2, 4).join('') + '</div>';
+
+                // Total a pagar
+                reporte += '<div class="bloque-titulo">Resultado de la Declaración</div>';
+                reporte += '<div class="fila-cas">';
+                reporte += casilleroF29('91', 'Total a Pagar en Plazo Legal', c.totalPago, { clase: 'total' });
+                reporte += '</div>';
+
+                reporte += '<div class="f29-footer"><span>Grupo La Cabaña — Calculadora IVA F29</span><span>' + (esPago ? '💰 Declaración con pago' : '✅ Declaración con remanente') + '</span></div>';
+                reporte += '<div class="nota">Códigos según instructivo vigente del SII para el Formulario 29. El SII puede actualizarlos por resolución: verifica siempre la propuesta oficial en sii.cl antes de declarar. Este documento es una representación informativa y no reemplaza la declaración oficial en el sitio del SII.</div>';
+                reporte += '</div>';
+            });
+
+            reporte += '</body></html>';
+
+            const ventana = window.open('', '', 'width=900,height=800');
             ventana.document.write(reporte);
             ventana.document.close();
         }
