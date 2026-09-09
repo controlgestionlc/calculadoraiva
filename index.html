@@ -404,6 +404,7 @@
                 <div style="margin-bottom: 20px;">
                     <button class="btn btn-primary" onclick="generarReporteConsolidado()" style="margin-right: 10px;">📄 Generar Reporte Final del Mes</button>
                     <button class="btn btn-primary" onclick="generarF29PorEmpresa()" style="margin-right: 10px; background: #2d5a3d;">🧾 Generar F29 por Empresa</button>
+                    <button class="btn btn-primary" onclick="generarResumenCorreo()" style="margin-right: 10px; background: #3a6ea8;">✉️ Resumen para Correo</button>
                     <button class="btn btn-secondary" onclick="limpiarPeriodo()" style="margin-right: 10px;">🗑️ Borrar Período Mostrado</button>
                     <button class="btn btn-secondary" onclick="limpiarTodos()" style="background: #f5d5d5; color: #b85c5c;">🗑️ Limpiar Todo</button>
                 </div>
@@ -3496,6 +3497,112 @@
 
             const ventana = window.open('', '', 'width=900,height=800');
             ventana.document.write(reporte);
+            ventana.document.close();
+        }
+
+        // ===== RESUMEN PARA CORREO (mes, empresa, monto a pagar, remanente) =====
+        function generarResumenCorreo() {
+            const filtroRep = document.getElementById('filtroPeriodo');
+            const periodoHistorial = filtroRep ? filtroRep.value : '';
+            const todosLosCalculos = JSON.parse(localStorage.getItem('calculosIVA') || '[]');
+            const calculos = periodoHistorial
+                ? todosLosCalculos.filter(c => (c.periodo || '') === periodoHistorial)
+                : todosLosCalculos;
+
+            if (todosLosCalculos.length === 0) {
+                alert('❌ No hay cálculos guardados para generar el resumen');
+                return;
+            }
+            if (calculos.length === 0) {
+                alert('❌ No hay cálculos guardados para ' + nombrePeriodo(periodoHistorial));
+                return;
+            }
+
+            // Orden: por período y luego por empresa
+            const filas = [...calculos].sort((a, b) => {
+                const p = (a.periodo || '').localeCompare(b.periodo || '');
+                return p !== 0 ? p : (a.empresa || '').localeCompare(b.empresa || '');
+            });
+
+            const totalPagar = filas.reduce((s, c) => s + (c.totalPago || 0), 0);
+            const totalRemanente = filas.reduce((s, c) => s + (c.remanenteMes || 0), 0);
+
+            let html = '<html><head><meta charset="UTF-8"><title>Resumen para Correo</title>';
+            html += '<style>';
+            html += "body { font-family: Arial, Helvetica, sans-serif; margin: 24px; color: #222; }";
+            html += '.toolbar { margin-bottom: 14px; }';
+            html += '.toolbar button { font-family: inherit; font-size: 13px; padding: 8px 14px; border-radius: 5px; border: 1px solid #3a6ea8; background: #3a6ea8; color: #fff; cursor: pointer; margin-right: 8px; }';
+            html += '.toolbar button.secundario { background: #fff; color: #3a6ea8; }';
+            html += '.ayuda { font-size: 11.5px; color: #777; margin-bottom: 16px; }';
+            html += 'table#tablaResumenCorreo { border-collapse: collapse; font-size: 13px; min-width: 560px; }';
+            html += 'table#tablaResumenCorreo th { background: #3a6ea8; color: #fff; text-align: left; padding: 8px 12px; font-weight: 600; }';
+            html += 'table#tablaResumenCorreo td { border: 1px solid #d7dee5; padding: 7px 12px; }';
+            html += 'table#tablaResumenCorreo td.num { text-align: right; font-variant-numeric: tabular-nums; }';
+            html += 'table#tablaResumenCorreo tr:nth-child(even) td { background: #f4f7fa; }';
+            html += 'table#tablaResumenCorreo tr.total td { background: #dfe8f0; font-weight: 700; border-top: 2px solid #3a6ea8; }';
+            html += '@media print { .toolbar, .ayuda { display: none; } }';
+            html += '</style></head><body>';
+
+            html += '<h2 style="color:#3a6ea8;margin-bottom:2px;">✉️ Resumen para Correo</h2>';
+            html += '<p style="color:#777;margin-top:0;">' + nombrePeriodo(periodoHistorial || filas[0].periodo || '') + ' — ' + filas.length + ' registro' + (filas.length > 1 ? 's' : '') + '</p>';
+
+            html += '<div class="toolbar"><button onclick="copiarTablaCorreo()">📋 Copiar tabla</button><button class="secundario" onclick="window.print()">🖨️ Imprimir / PDF</button></div>';
+            html += '<div class="ayuda">Copia la tabla y pégala directo en el cuerpo del correo (Ctrl+V / Cmd+V). Si tu correo no conserva el formato, se copia también como texto separado por tabulaciones (funciona bien pegado en Excel/Sheets).</div>';
+
+            html += '<table id="tablaResumenCorreo"><thead><tr>';
+            html += '<th>Mes</th><th>Empresa</th><th style="text-align:right;">Monto a Pagar</th><th style="text-align:right;">Remanente de Crédito</th>';
+            html += '</tr></thead><tbody>';
+
+            filas.forEach(c => {
+                html += '<tr>';
+                html += '<td>' + nombrePeriodo(c.periodo) + '</td>';
+                html += '<td>' + c.empresa + '</td>';
+                html += '<td class="num">$' + fmt(c.totalPago || 0) + '</td>';
+                html += '<td class="num">' + ((c.remanenteMes || 0) > 0 ? '$' + fmt(c.remanenteMes) : '—') + '</td>';
+                html += '</tr>';
+            });
+
+            html += '<tr class="total"><td colspan="2">TOTAL GENERAL</td>';
+            html += '<td class="num">$' + fmt(totalPagar) + '</td>';
+            html += '<td class="num">$' + fmt(totalRemanente) + '</td></tr>';
+            html += '</tbody></table>';
+
+            html += '<script>';
+            html += 'async function copiarTablaCorreo() {';
+            html += '  const tabla = document.getElementById("tablaResumenCorreo");';
+            html += '  const htmlTabla = tabla.outerHTML;';
+            html += '  const filasTxt = [["Mes","Empresa","Monto a Pagar","Remanente de Crédito"]];';
+            html += '  tabla.querySelectorAll("tbody tr").forEach(function(tr) {';
+            html += '    const celdas = Array.from(tr.children).map(function(td){ return td.innerText; });';
+            html += '    filasTxt.push(celdas);';
+            html += '  });';
+            html += '  const texto = filasTxt.map(function(f){ return f.join("\\t"); }).join("\\n");';
+            html += '  try {';
+            html += '    const item = new ClipboardItem({';
+            html += '      "text/html": new Blob([htmlTabla], {type: "text/html"}),';
+            html += '      "text/plain": new Blob([texto], {type: "text/plain"})';
+            html += '    });';
+            html += '    await navigator.clipboard.write([item]);';
+            html += '    alert("✅ Tabla copiada. Pégala directo en el correo (Ctrl+V).");';
+            html += '  } catch (err) {';
+            html += '    try {';
+            html += '      await navigator.clipboard.writeText(texto);';
+            html += '      alert("✅ Copiada como texto (tabulado). Pégala en el correo o en Excel.");';
+            html += '    } catch (err2) {';
+            html += '      const range = document.createRange();';
+            html += '      range.selectNode(tabla);';
+            html += '      window.getSelection().removeAllRanges();';
+            html += '      window.getSelection().addRange(range);';
+            html += '      alert("Tu navegador bloqueó el copiado automático. La tabla quedó seleccionada: usa Ctrl+C / Cmd+C.");';
+            html += '    }';
+            html += '  }';
+            html += '}';
+            html += '</' + 'script>';
+
+            html += '</body></html>';
+
+            const ventana = window.open('', '', 'width=760,height=650');
+            ventana.document.write(html);
             ventana.document.close();
         }
 
