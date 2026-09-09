@@ -259,6 +259,12 @@
                         <td><input type="text" id="cred46IVA" value="0" class="celda-editable" onblur="formatearMonto(this); recalcularTotales()" onfocus="this.select()" title="Editable: ajusta el monto y los totales se recalculan"></td>
                     </tr>
                     <tr>
+                        <td>(+) Notas de Débito Recibidas (56)</td>
+                        <td><input type="text" id="cred56Neto" value="0" class="celda-editable" onblur="formatearMonto(this); recalcularTotales()" onfocus="this.select()" title="Editable: ajusta el monto y los totales se recalculan"></td>
+                        <td><input type="text" id="cred56Exento" value="0" class="celda-editable" onblur="formatearMonto(this); recalcularTotales()" onfocus="this.select()" title="Editable: ajusta el monto y los totales se recalculan"></td>
+                        <td><input type="text" id="cred56IVA" value="0" class="celda-editable" onblur="formatearMonto(this); recalcularTotales()" onfocus="this.select()" title="Editable: ajusta el monto y los totales se recalculan"></td>
+                    </tr>
+                    <tr>
                         <td>(-) NC (61)</td>
                         <td><input type="text" id="cred61Neto" value="0" class="celda-editable" onblur="formatearMonto(this); recalcularTotales()" onfocus="this.select()" title="Editable: ajusta el monto y los totales se recalculan"></td>
                         <td><input type="text" id="cred61Exento" value="0" class="celda-editable" onblur="formatearMonto(this); recalcularTotales()" onfocus="this.select()" title="Editable: ajusta el monto y los totales se recalculan"></td>
@@ -1314,8 +1320,8 @@
                 '33': 'Factura Electrónica',
                 '34': 'Factura Exenta Electrónica',
                 '46': 'Factura Propia de Compras',
-                '61': 'Nota de Crédito',
-                '60': 'Nota de Débito'
+                '56': 'Nota de Débito',
+                '61': 'Nota de Crédito'
             };
 
             const resumen = {};
@@ -2306,7 +2312,7 @@
         }
 
         const TIPOS_VENTAS  = ['33', '34', '56', '61'];  // Facturas, Exentas, Notas de Débito, Notas de Crédito
-        const TIPOS_COMPRAS = ['33', '34', '46', '61'];  // Facturas, Exentas, FPC, Notas de Crédito
+        const TIPOS_COMPRAS = ['33', '34', '46', '56', '61'];  // Facturas, Exentas, FPC, Notas de Débito, Notas de Crédito
 
         // Devuelve un texto con los tipos del CSV que la calculadora no suma
         function avisoTiposNoConsiderados(datos, tiposValidos) {
@@ -2535,8 +2541,8 @@
             const recuperacion = val('recuperacionImpuestoEspecifico');
 
             // --- Créditos ---
-            const cIva33 = val('cred33IVA'), cIva46 = val('cred46IVA'), cIva61 = val('cred61IVA');
-            const totalCreditos = cIva33 + cIva46 - cIva61 + remPesos + recuperacion;
+            const cIva33 = val('cred33IVA'), cIva46 = val('cred46IVA'), cIva56 = val('cred56IVA'), cIva61 = val('cred61IVA');
+            const totalCreditos = cIva33 + cIva46 + cIva56 - cIva61 + remPesos + recuperacion;
             setVal('totalCreditos', totalCreditos);
             setVal('ivaCredito', totalCreditos);
 
@@ -2552,21 +2558,25 @@
             const f33 = datosCompras.filter(c => c.tipo === '33');
             const f34 = datosCompras.filter(c => c.tipo === '34');
             const f46 = datosCompras.filter(c => c.tipo === '46');
+            const f56 = datosCompras.filter(c => c.tipo === '56');
             const f61 = datosCompras.filter(c => c.tipo === '61');
 
             const iva33 = f33.reduce((s, c) => s + c.iva, 0);
             const iva34 = f34.reduce((s, c) => s + c.iva, 0);
             const iva46 = f46.reduce((s, c) => s + c.iva, 0);
+            const iva56 = f56.reduce((s, c) => s + c.iva, 0);
             const iva61 = f61.reduce((s, c) => s + c.iva, 0);
 
             const net33 = f33.reduce((s, c) => s + c.neto, 0);
             const net34 = f34.reduce((s, c) => s + c.neto, 0);
             const net46 = f46.reduce((s, c) => s + c.neto, 0);
+            const net56 = f56.reduce((s, c) => s + c.neto, 0);
             const net61 = f61.reduce((s, c) => s + c.neto, 0);
 
             const exento33 = f33.reduce((s, c) => s + (c.exento || 0), 0);
             const exento34 = f34.reduce((s, c) => s + (c.exento || 0), 0);
             const exento46 = f46.reduce((s, c) => s + (c.exento || 0), 0);
+            const exento56 = f56.reduce((s, c) => s + (c.exento || 0), 0);
             const exento61 = f61.reduce((s, c) => s + (c.exento || 0), 0);
 
             document.getElementById('cred33Neto').value = fmt(net33);
@@ -2578,6 +2588,9 @@
             document.getElementById('cred46Neto').value = fmt(net46);
             document.getElementById('cred46Exento').value = fmt(exento46);
             document.getElementById('cred46IVA').value = fmt(iva46);
+            document.getElementById('cred56Neto').value = fmt(net56);
+            document.getElementById('cred56Exento').value = fmt(exento56);
+            document.getElementById('cred56IVA').value = fmt(iva56);
             document.getElementById('cred61Neto').value = fmt(net61);
             document.getElementById('cred61Exento').value = fmt(exento61);
             document.getElementById('cred61IVA').value = fmt(iva61);
@@ -2796,7 +2809,7 @@
         // ===== FUNCIONES DE GUARDADO Y CONSOLIDACIÓN =====
 
         // Campos del detalle por tipo de documento que se guardan con cada cálculo
-        const CAMPOS_DETALLE = ['venta33Neto', 'venta33Exento', 'venta33IVA', 'venta34Neto', 'venta34Exento', 'venta34IVA', 'venta56Neto', 'venta56Exento', 'venta56IVA', 'venta61Neto', 'venta61Exento', 'venta61IVA', 'cred33Neto', 'cred33Exento', 'cred33IVA', 'cred34Neto', 'cred34Exento', 'cred34IVA', 'cred46Neto', 'cred46Exento', 'cred46IVA', 'cred61Neto', 'cred61Exento', 'cred61IVA'];
+        const CAMPOS_DETALLE = ['venta33Neto', 'venta33Exento', 'venta33IVA', 'venta34Neto', 'venta34Exento', 'venta34IVA', 'venta56Neto', 'venta56Exento', 'venta56IVA', 'venta61Neto', 'venta61Exento', 'venta61IVA', 'cred33Neto', 'cred33Exento', 'cred33IVA', 'cred34Neto', 'cred34Exento', 'cred34IVA', 'cred46Neto', 'cred46Exento', 'cred46IVA', 'cred56Neto', 'cred56Exento', 'cred56IVA', 'cred61Neto', 'cred61Exento', 'cred61IVA'];
 
         function capturarDetalle() {
             const d = {};
