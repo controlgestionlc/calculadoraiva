@@ -881,6 +881,10 @@
             const lines = contenido.trim().split('\n');
             const result = [];
             const separador = lines[0].includes(';') ? ';' : ',';
+            // Columna "Monto Exento" del Registro de Compras SII (por defecto posición 9)
+            const headerSII = lines[0].split(separador).map(h => h.trim().toUpperCase());
+            let idxExento = headerSII.findIndex(h => h.includes('EXENTO'));
+            if (idxExento < 0) idxExento = 9;
             
             for (let i = 1; i < lines.length; i++) {
                 if (!lines[i].trim()) continue;
@@ -892,6 +896,7 @@
                 const numeroFolio = parts[5];
                 const fecha = parts[6];
                 const montoNeto = parseFloat(parts[10]) || 0;
+                const montoExento = parseFloat(parts[idxExento]) || 0;
                 const iva = parseFloat(parts[11]) || 0;
                 
                 if (rutProveedor) {
@@ -902,8 +907,9 @@
                         numeroFolio,
                         fecha,
                         montoNeto: Math.abs(montoNeto),
+                        montoExento: Math.abs(montoExento),
                         iva: Math.abs(iva),
-                        montoTotal: Math.abs(montoNeto + iva),
+                        montoTotal: Math.abs(montoNeto) + Math.abs(montoExento) + Math.abs(iva),
                         key: `${normalizeRUT(rutProveedor)}-${numeroFolio}-${getDocTypeCode(tipoDoc)}`
                     });
                 }
@@ -990,6 +996,7 @@
                 const folioText = Object.keys(row).find(k => k.toUpperCase().includes('FACTURA') && !k.toUpperCase().includes('CORR'));
                 const fechaText = Object.keys(row).find(k => k.toUpperCase() === 'FECHA LIBROS' || k.toUpperCase() === 'FECHA');
                 const netoText = Object.keys(row).find(k => k.toUpperCase().includes('NETO'));
+                const exentoText = Object.keys(row).find(k => k.toUpperCase().includes('EXENTO'));
                 const ivaText = Object.keys(row).find(k => k.toUpperCase().includes('IVA') && k.toUpperCase().includes('RECUPERABLE'));
                 
                 if (!rutText || !folioText) return;
@@ -1002,6 +1009,7 @@
                 
                 let montoNeto = parseFloat(row[netoText]) || 0;
                 let iva = parseFloat(row[ivaText]) || 0;
+                let montoExento = exentoText ? (parseFloat(row[exentoText]) || 0) : 0;
                 
                 // Invertir signo si es NC/ND
                 if ((tipoDocCode === 61 || tipoDocCode === 60) && montoNeto < 0) {
@@ -1016,8 +1024,9 @@
                     numeroFolio,
                     fecha,
                     montoNeto: Math.abs(montoNeto),
+                    montoExento: Math.abs(montoExento),
                     iva: Math.abs(iva),
-                    montoTotal: Math.abs(montoNeto + iva),
+                    montoTotal: Math.abs(montoNeto) + Math.abs(montoExento) + Math.abs(iva),
                     key: `${rut}-${numeroFolio}-${tipoDocCode}`
                 });
             });
@@ -1042,6 +1051,8 @@
                 if (rut) {
                     const montoNeto = parseFloat(row['NETO']) || 0;
                     const iva = parseFloat(row['IVA 100 RECUPERABLE'] || row['IVA']) || 0;
+                    const claveExento = header.find(h => h.includes('EXENTO'));
+                    const montoExento = claveExento ? (parseFloat(row[claveExento]) || 0) : 0;
                     
                     result.push({
                         tipoDoc: tipoDocCode,
@@ -1050,8 +1061,9 @@
                         numeroFolio: row['FACTURA'] || '',
                         fecha: row['FECHA LIBROS'] ? row['FECHA LIBROS'].substring(0, 10) : '',
                         montoNeto: Math.abs(montoNeto),
+                        montoExento: Math.abs(montoExento),
                         iva: Math.abs(iva),
-                        montoTotal: Math.abs(montoNeto + iva),
+                        montoTotal: Math.abs(montoNeto) + Math.abs(montoExento) + Math.abs(iva),
                         key: `${rut}-${row['FACTURA']}-${tipoDocCode}`
                     });
                 }
@@ -1064,7 +1076,7 @@
             datosComparados.faltantesEnSII = datosComparados.laudus.filter(l => !datosComparados.sii.some(s => s.key === l.key));
             datosComparados.montosDiscrepantes = datosComparados.sii.filter(s => {
                 const match = datosComparados.laudus.find(l => l.key === s.key);
-                return match && (s.montoNeto !== match.montoNeto || s.iva !== match.iva || s.montoTotal !== match.montoTotal);
+                return match && (s.montoNeto !== match.montoNeto || (s.montoExento || 0) !== (match.montoExento || 0) || s.iva !== match.iva || s.montoTotal !== match.montoTotal);
             });
 
             document.getElementById('estadoCarga').innerHTML = `✅ Datos cargados exitosamente`;
@@ -1085,16 +1097,19 @@
             mostrarMontosDiscrepantes();
         }
 
+        // Formato de monto para las tablas del comparador
+        function fmtCL(n) { return (n || 0).toLocaleString('es-CL', {maximumFractionDigits: 0}); }
+
         function mostrarFaltantesEnLaudus() {
             if (datosComparados.faltantesEnLaudus.length === 0) {
                 document.getElementById('faltantesEnLaudus').innerHTML = '<div class="no-data">✅ No hay discrepancias</div>';
                 return;
             }
 
-            let html = '<div class="table-wrapper"><table><thead><tr><th>Fecha</th><th>RUT</th><th>Proveedor</th><th>Folio</th><th>Tipo</th><th style="text-align: right;">Neto</th><th style="text-align: right;">IVA</th><th style="text-align: right;">Total</th></tr></thead><tbody>';
+            let html = '<div class="table-wrapper"><table><thead><tr><th>Fecha</th><th>RUT</th><th>Proveedor</th><th>Folio</th><th>Tipo</th><th style="text-align: right;">Neto</th><th style="text-align: right;">Exento</th><th style="text-align: right;">IVA</th><th style="text-align: right;">Total</th></tr></thead><tbody>';
             
             datosComparados.faltantesEnLaudus.forEach(d => {
-                html += `<tr><td>${d.fecha}</td><td>${d.rutProveedor}</td><td>${d.razonSocial.substring(0, 30)}</td><td>${d.numeroFolio}</td><td>${d.tipoDoc}</td><td style="text-align: right;">$${d.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right;">$${d.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right;">$${d.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td></tr>`;
+                html += `<tr><td>${d.fecha}</td><td>${d.rutProveedor}</td><td>${d.razonSocial.substring(0, 30)}</td><td>${d.numeroFolio}</td><td>${d.tipoDoc}</td><td style="text-align: right;">$${d.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right;">$${fmtCL(d.montoExento)}</td><td style="text-align: right;">$${d.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right;">$${d.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td></tr>`;
             });
 
             html += '</tbody></table></div>';
@@ -1107,10 +1122,10 @@
                 return;
             }
 
-            let html = '<div class="table-wrapper"><table><thead><tr><th>Fecha</th><th>RUT</th><th>Proveedor</th><th>Folio</th><th>Tipo</th><th style="text-align: right;">Neto</th><th style="text-align: right;">IVA</th><th style="text-align: right;">Total</th></tr></thead><tbody>';
+            let html = '<div class="table-wrapper"><table><thead><tr><th>Fecha</th><th>RUT</th><th>Proveedor</th><th>Folio</th><th>Tipo</th><th style="text-align: right;">Neto</th><th style="text-align: right;">Exento</th><th style="text-align: right;">IVA</th><th style="text-align: right;">Total</th></tr></thead><tbody>';
             
             datosComparados.faltantesEnSII.forEach(d => {
-                html += `<tr><td>${d.fecha}</td><td>${d.rutProveedor}</td><td>${d.razonSocial.substring(0, 30)}</td><td>${d.numeroFolio}</td><td>${d.tipoDoc}</td><td style="text-align: right;">$${d.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right;">$${d.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right;">$${d.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td></tr>`;
+                html += `<tr><td>${d.fecha}</td><td>${d.rutProveedor}</td><td>${d.razonSocial.substring(0, 30)}</td><td>${d.numeroFolio}</td><td>${d.tipoDoc}</td><td style="text-align: right;">$${d.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right;">$${fmtCL(d.montoExento)}</td><td style="text-align: right;">$${d.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right;">$${d.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td></tr>`;
             });
 
             html += '</tbody></table></div>';
@@ -1123,15 +1138,16 @@
                 return;
             }
 
-            let html = '<div class="table-wrapper"><table><thead><tr><th>Fecha</th><th>RUT</th><th>Proveedor</th><th>Folio</th><th>Tipo</th><th colspan="2" style="text-align: center;">Neto</th><th colspan="2" style="text-align: center;">IVA</th><th colspan="2" style="text-align: center;">Total</th></tr><tr style="background: var(--gs); font-size: 12px;"><th></th><th></th><th></th><th></th><th></th><th style="text-align: right;">SII</th><th style="text-align: right;">Laudus</th><th style="text-align: right;">SII</th><th style="text-align: right;">Laudus</th><th style="text-align: right;">SII</th><th style="text-align: right;">Laudus</th></tr></thead><tbody>';
+            let html = '<div class="table-wrapper"><table><thead><tr><th>Fecha</th><th>RUT</th><th>Proveedor</th><th>Folio</th><th>Tipo</th><th colspan="2" style="text-align: center;">Neto</th><th colspan="2" style="text-align: center;">Exento</th><th colspan="2" style="text-align: center;">IVA</th><th colspan="2" style="text-align: center;">Total</th></tr><tr style="background: var(--gs); font-size: 12px;"><th></th><th></th><th></th><th></th><th></th><th style="text-align: right;">SII</th><th style="text-align: right;">Laudus</th><th style="text-align: right;">SII</th><th style="text-align: right;">Laudus</th><th style="text-align: right;">SII</th><th style="text-align: right;">Laudus</th><th style="text-align: right;">SII</th><th style="text-align: right;">Laudus</th></tr></thead><tbody>';
             
             datosComparados.montosDiscrepantes.forEach(d => {
                 const match = datosComparados.laudus.find(l => l.key === d.key);
                 const diffNeto = Math.abs(d.montoNeto - match.montoNeto);
+                const diffExento = Math.abs((d.montoExento || 0) - (match.montoExento || 0));
                 const diffIva = Math.abs(d.iva - match.iva);
                 const diffTotal = Math.abs(d.montoTotal - match.montoTotal);
                 
-                html += `<tr style="background: #fdf3d8;"><td>${d.fecha}</td><td>${d.rutProveedor}</td><td>${d.razonSocial.substring(0, 20)}</td><td>${d.numeroFolio}</td><td>${d.tipoDoc}</td><td style="text-align: right;">$${d.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right; ${diffNeto > 0 ? 'color: var(--red); font-weight: 600;' : ''}">$${match.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right;">$${d.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right; ${diffIva > 0 ? 'color: var(--red); font-weight: 600;' : ''}">$${match.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right;">$${d.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right; ${diffTotal > 0 ? 'color: var(--red); font-weight: 600;' : ''}">$${match.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td></tr>`;
+                html += `<tr style="background: #fdf3d8;"><td>${d.fecha}</td><td>${d.rutProveedor}</td><td>${d.razonSocial.substring(0, 20)}</td><td>${d.numeroFolio}</td><td>${d.tipoDoc}</td><td style="text-align: right;">$${d.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right; ${diffNeto > 0 ? 'color: var(--red); font-weight: 600;' : ''}">$${match.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right;">$${fmtCL(d.montoExento)}</td><td style="text-align: right; ${diffExento > 0 ? 'color: var(--red); font-weight: 600;' : ''}">$${fmtCL(match.montoExento)}</td><td style="text-align: right;">$${d.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right; ${diffIva > 0 ? 'color: var(--red); font-weight: 600;' : ''}">$${match.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right;">$${d.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td style="text-align: right; ${diffTotal > 0 ? 'color: var(--red); font-weight: 600;' : ''}">$${match.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td></tr>`;
             });
 
             html += '</tbody></table></div>';
@@ -1244,13 +1260,14 @@
             }
 
             const totalNeto = datosComparados.faltantesEnLaudus.reduce((s, d) => s + d.montoNeto, 0);
+            const totalExento = datosComparados.faltantesEnLaudus.reduce((s, d) => s + (d.montoExento || 0), 0);
             const totalIva = datosComparados.faltantesEnLaudus.reduce((s, d) => s + d.iva, 0);
             const totalGeneral = datosComparados.faltantesEnLaudus.reduce((s, d) => s + d.montoTotal, 0);
 
-            let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Faltantes Laudus</title><style>* { margin: 0; padding: 0; box-sizing: border-box; } body { font-family: Arial, sans-serif; } @page { size: Letter landscape; margin: 1.5cm; } .page { padding: 1.5cm; } .header { background: linear-gradient(135deg, #2d5a3d 0%, #4a8c62 100%); color: white; padding: 10px; margin-bottom: 10px; border-radius: 4px; } .header h1 { font-size: 22px; margin: 0; } .info { background: #f7fbf8; padding: 10px; margin-bottom: 10px; font-size: 12px; } table { width: 100%; border-collapse: collapse; font-size: 13px; } th { background: #f7fbf8; padding: 8px; text-align: left; border-bottom: 1px solid #c8ddd2; } td { padding: 6px; border-bottom: 0.5px solid #e5e7eb; } .text-right { text-align: right; } </style></head><body><div class="page"><div class="header"><h1>Documentos en SII pero NO en Laudus</h1></div><div class="info"><strong>Total:</strong> ${datosComparados.faltantesEnLaudus.length} | <strong>Neto:</strong> $${totalNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})} | <strong>IVA:</strong> $${totalIva.toLocaleString('es-CL', {maximumFractionDigits: 0})} | <strong>Total:</strong> $${totalGeneral.toLocaleString('es-CL', {maximumFractionDigits: 0})}</div><table><thead><tr><th>Fecha</th><th>RUT</th><th>Proveedor</th><th>Folio</th><th>Tipo</th><th class="text-right">Neto</th><th class="text-right">IVA</th><th class="text-right">Total</th></tr></thead><tbody>`;
+            let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Faltantes Laudus</title><style>* { margin: 0; padding: 0; box-sizing: border-box; } body { font-family: Arial, sans-serif; } @page { size: Letter landscape; margin: 1.5cm; } .page { padding: 1.5cm; } .header { background: linear-gradient(135deg, #2d5a3d 0%, #4a8c62 100%); color: white; padding: 10px; margin-bottom: 10px; border-radius: 4px; } .header h1 { font-size: 22px; margin: 0; } .info { background: #f7fbf8; padding: 10px; margin-bottom: 10px; font-size: 12px; } table { width: 100%; border-collapse: collapse; font-size: 13px; } th { background: #f7fbf8; padding: 8px; text-align: left; border-bottom: 1px solid #c8ddd2; } td { padding: 6px; border-bottom: 0.5px solid #e5e7eb; } .text-right { text-align: right; } </style></head><body><div class="page"><div class="header"><h1>Documentos en SII pero NO en Laudus</h1></div><div class="info"><strong>Total:</strong> ${datosComparados.faltantesEnLaudus.length} | <strong>Neto:</strong> $${totalNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})} | <strong>Exento:</strong> $${totalExento.toLocaleString('es-CL', {maximumFractionDigits: 0})} | <strong>IVA:</strong> $${totalIva.toLocaleString('es-CL', {maximumFractionDigits: 0})} | <strong>Total:</strong> $${totalGeneral.toLocaleString('es-CL', {maximumFractionDigits: 0})}</div><table><thead><tr><th>Fecha</th><th>RUT</th><th>Proveedor</th><th>Folio</th><th>Tipo</th><th class="text-right">Neto</th><th class="text-right">Exento</th><th class="text-right">IVA</th><th class="text-right">Total</th></tr></thead><tbody>`;
 
             datosComparados.faltantesEnLaudus.forEach(d => {
-                html += `<tr><td>${d.fecha}</td><td>${d.rutProveedor}</td><td>${d.razonSocial}</td><td>${d.numeroFolio}</td><td>${d.tipoDoc}</td><td class="text-right">$${d.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right">$${d.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right">$${d.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td></tr>`;
+                html += `<tr><td>${d.fecha}</td><td>${d.rutProveedor}</td><td>${d.razonSocial}</td><td>${d.numeroFolio}</td><td>${d.tipoDoc}</td><td class="text-right">$${d.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right">$${fmtCL(d.montoExento)}</td><td class="text-right">$${d.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right">$${d.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td></tr>`;
             });
 
             html += `</tbody></table></div></body></html>`;
@@ -1268,13 +1285,14 @@
             }
 
             const totalNeto = datosComparados.faltantesEnSII.reduce((s, d) => s + d.montoNeto, 0);
+            const totalExento = datosComparados.faltantesEnSII.reduce((s, d) => s + (d.montoExento || 0), 0);
             const totalIva = datosComparados.faltantesEnSII.reduce((s, d) => s + d.iva, 0);
             const totalGeneral = datosComparados.faltantesEnSII.reduce((s, d) => s + d.montoTotal, 0);
 
-            let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Faltantes SII</title><style>* { margin: 0; padding: 0; box-sizing: border-box; } body { font-family: Arial, sans-serif; } @page { size: Letter landscape; margin: 1.5cm; } .page { padding: 1.5cm; } .header { background: linear-gradient(135deg, #2d5a3d 0%, #4a8c62 100%); color: white; padding: 10px; margin-bottom: 10px; border-radius: 4px; } .header h1 { font-size: 22px; margin: 0; } .info { background: #f7fbf8; padding: 10px; margin-bottom: 10px; font-size: 12px; } table { width: 100%; border-collapse: collapse; font-size: 13px; } th { background: #f7fbf8; padding: 8px; text-align: left; border-bottom: 1px solid #c8ddd2; } td { padding: 6px; border-bottom: 0.5px solid #e5e7eb; } .text-right { text-align: right; } </style></head><body><div class="page"><div class="header"><h1>Documentos en Laudus pero NO en SII</h1></div><div class="info"><strong>Total:</strong> ${datosComparados.faltantesEnSII.length} | <strong>Neto:</strong> $${totalNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})} | <strong>IVA:</strong> $${totalIva.toLocaleString('es-CL', {maximumFractionDigits: 0})} | <strong>Total:</strong> $${totalGeneral.toLocaleString('es-CL', {maximumFractionDigits: 0})}</div><table><thead><tr><th>Fecha</th><th>RUT</th><th>Proveedor</th><th>Folio</th><th>Tipo</th><th class="text-right">Neto</th><th class="text-right">IVA</th><th class="text-right">Total</th></tr></thead><tbody>`;
+            let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Faltantes SII</title><style>* { margin: 0; padding: 0; box-sizing: border-box; } body { font-family: Arial, sans-serif; } @page { size: Letter landscape; margin: 1.5cm; } .page { padding: 1.5cm; } .header { background: linear-gradient(135deg, #2d5a3d 0%, #4a8c62 100%); color: white; padding: 10px; margin-bottom: 10px; border-radius: 4px; } .header h1 { font-size: 22px; margin: 0; } .info { background: #f7fbf8; padding: 10px; margin-bottom: 10px; font-size: 12px; } table { width: 100%; border-collapse: collapse; font-size: 13px; } th { background: #f7fbf8; padding: 8px; text-align: left; border-bottom: 1px solid #c8ddd2; } td { padding: 6px; border-bottom: 0.5px solid #e5e7eb; } .text-right { text-align: right; } </style></head><body><div class="page"><div class="header"><h1>Documentos en Laudus pero NO en SII</h1></div><div class="info"><strong>Total:</strong> ${datosComparados.faltantesEnSII.length} | <strong>Neto:</strong> $${totalNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})} | <strong>Exento:</strong> $${totalExento.toLocaleString('es-CL', {maximumFractionDigits: 0})} | <strong>IVA:</strong> $${totalIva.toLocaleString('es-CL', {maximumFractionDigits: 0})} | <strong>Total:</strong> $${totalGeneral.toLocaleString('es-CL', {maximumFractionDigits: 0})}</div><table><thead><tr><th>Fecha</th><th>RUT</th><th>Proveedor</th><th>Folio</th><th>Tipo</th><th class="text-right">Neto</th><th class="text-right">Exento</th><th class="text-right">IVA</th><th class="text-right">Total</th></tr></thead><tbody>`;
 
             datosComparados.faltantesEnSII.forEach(d => {
-                html += `<tr><td>${d.fecha}</td><td>${d.rutProveedor}</td><td>${d.razonSocial}</td><td>${d.numeroFolio}</td><td>${d.tipoDoc}</td><td class="text-right">$${d.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right">$${d.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right">$${d.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td></tr>`;
+                html += `<tr><td>${d.fecha}</td><td>${d.rutProveedor}</td><td>${d.razonSocial}</td><td>${d.numeroFolio}</td><td>${d.tipoDoc}</td><td class="text-right">$${d.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right">$${fmtCL(d.montoExento)}</td><td class="text-right">$${d.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right">$${d.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td></tr>`;
             });
 
             html += `</tbody></table></div></body></html>`;
@@ -1291,15 +1309,16 @@
                 return;
             }
 
-            let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Montos Discrepantes</title><style>* { margin: 0; padding: 0; box-sizing: border-box; } body { font-family: Arial, sans-serif; } @page { size: Letter landscape; margin: 1.5cm; } .page { padding: 1.5cm; } .header { background: linear-gradient(135deg, #2d5a3d 0%, #4a8c62 100%); color: white; padding: 10px; margin-bottom: 10px; border-radius: 4px; } .header h1 { font-size: 22px; margin: 0; } .info { background: #f7fbf8; padding: 10px; margin-bottom: 10px; font-size: 12px; } table { width: 100%; border-collapse: collapse; font-size: 12px; } th { background: #f7fbf8; padding: 6px; text-align: center; border-bottom: 1px solid #c8ddd2; } td { padding: 5px; border-bottom: 0.5px solid #e5e7eb; } .text-right { text-align: right; } tr.highlight { background: #fdf3d8; } .diff { color: #b85c5c; font-weight: 600; } </style></head><body><div class="page"><div class="header"><h1>Documentos con Montos Diferentes</h1></div><div class="info">Total: ${datosComparados.montosDiscrepantes.length} documentos</div><table><thead><tr><th>Fecha</th><th>RUT</th><th>Proveedor</th><th>Folio</th><th>Tipo</th><th colspan="2">Neto</th><th colspan="2">IVA</th><th colspan="2">Total</th></tr><tr style="background: #f9fafb; font-size: 10px;"><th></th><th></th><th></th><th></th><th></th><th>SII</th><th>Laudus</th><th>SII</th><th>Laudus</th><th>SII</th><th>Laudus</th></tr></thead><tbody>`;
+            let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Montos Discrepantes</title><style>* { margin: 0; padding: 0; box-sizing: border-box; } body { font-family: Arial, sans-serif; } @page { size: Letter landscape; margin: 1.5cm; } .page { padding: 1.5cm; } .header { background: linear-gradient(135deg, #2d5a3d 0%, #4a8c62 100%); color: white; padding: 10px; margin-bottom: 10px; border-radius: 4px; } .header h1 { font-size: 22px; margin: 0; } .info { background: #f7fbf8; padding: 10px; margin-bottom: 10px; font-size: 12px; } table { width: 100%; border-collapse: collapse; font-size: 12px; } th { background: #f7fbf8; padding: 6px; text-align: center; border-bottom: 1px solid #c8ddd2; } td { padding: 5px; border-bottom: 0.5px solid #e5e7eb; } .text-right { text-align: right; } tr.highlight { background: #fdf3d8; } .diff { color: #b85c5c; font-weight: 600; } </style></head><body><div class="page"><div class="header"><h1>Documentos con Montos Diferentes</h1></div><div class="info">Total: ${datosComparados.montosDiscrepantes.length} documentos</div><table><thead><tr><th>Fecha</th><th>RUT</th><th>Proveedor</th><th>Folio</th><th>Tipo</th><th colspan="2">Neto</th><th colspan="2">Exento</th><th colspan="2">IVA</th><th colspan="2">Total</th></tr><tr style="background: #f9fafb; font-size: 10px;"><th></th><th></th><th></th><th></th><th></th><th>SII</th><th>Laudus</th><th>SII</th><th>Laudus</th><th>SII</th><th>Laudus</th><th>SII</th><th>Laudus</th></tr></thead><tbody>`;
 
             datosComparados.montosDiscrepantes.forEach(d => {
                 const match = datosComparados.laudus.find(l => l.key === d.key);
                 const diffNeto = Math.abs(d.montoNeto - match.montoNeto);
+                const diffExento = Math.abs((d.montoExento || 0) - (match.montoExento || 0));
                 const diffIva = Math.abs(d.iva - match.iva);
                 const diffTotal = Math.abs(d.montoTotal - match.montoTotal);
                 
-                html += `<tr class="highlight"><td>${d.fecha}</td><td>${d.rutProveedor}</td><td>${d.razonSocial.substring(0, 20)}</td><td>${d.numeroFolio}</td><td>${d.tipoDoc}</td><td class="text-right">$${d.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right ${diffNeto > 0 ? 'diff' : ''}">$${match.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right">$${d.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right ${diffIva > 0 ? 'diff' : ''}">$${match.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right">$${d.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right ${diffTotal > 0 ? 'diff' : ''}">$${match.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td></tr>`;
+                html += `<tr class="highlight"><td>${d.fecha}</td><td>${d.rutProveedor}</td><td>${d.razonSocial.substring(0, 20)}</td><td>${d.numeroFolio}</td><td>${d.tipoDoc}</td><td class="text-right">$${d.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right ${diffNeto > 0 ? 'diff' : ''}">$${match.montoNeto.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right">$${fmtCL(d.montoExento)}</td><td class="text-right ${diffExento > 0 ? 'diff' : ''}">$${fmtCL(match.montoExento)}</td><td class="text-right">$${d.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right ${diffIva > 0 ? 'diff' : ''}">$${match.iva.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right">$${d.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td><td class="text-right ${diffTotal > 0 ? 'diff' : ''}">$${match.montoTotal.toLocaleString('es-CL', {maximumFractionDigits: 0})}</td></tr>`;
             });
 
             html += `</tbody></table></div></body></html>`;
